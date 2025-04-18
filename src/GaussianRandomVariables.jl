@@ -226,4 +226,20 @@ function Base.sqrt(a::GVar{<:AbstractFloat})
     return GVar(meanvar(sqrt, x -> 1/(2*sqrt(x)), x -> -1/(4 * sqrt(x^3)), a.center, a.σ)...)
 end
 
+# For the following trigonometric functions, the resulting distributions are not normal,
+# but they will still be represented as such
+function Base.sin(a::GVar{<:AbstractFloat})
+    return GVar(
+        sin(a.center) * exp(-0.5 * a.σ^2), 
+        0.5 - 0.5*cos(2*a.center)*exp(-2 * a.σ^2) - (sin(a.center)^2) * exp(-a.σ^2)
+    )
+end
+
+function Base.cos(a::GVar{<:AbstractFloat})
+    return GVar(
+        cos(a.center) * exp(-0.5 * a.σ^2), 
+        0.5 + 0.5 * cos(2*a.center)*exp(-2 * a.σ^2) - (cos(a.center)^2) * exp(-a.σ^2)
+    )
+end
+
 end # module
