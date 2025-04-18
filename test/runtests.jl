@@ -1,6 +1,16 @@
 using GaussianRandomVariables
 using ThickNumbers
+using HypothesisTests
 using Test
+
+function testscalar(f, μ, σ; n=1000, pval = 0.001)
+    x = μ .+ σ .* randn(n)
+    y = f.(x)
+    g = GVar(μ, σ)
+    fg = f(g)
+    z = mid(fg) .+ rad(fg) .* randn(n)
+    return pvalue(EqualVarianceTTest(y, z)) > pval && pvalue(LeveneTest(y, z)) > pval
+end
 
 @testset "GaussianRandomVariables.jl" begin
     x = 3 ± 1
@@ -19,4 +29,12 @@ using Test
     @test rad(1/x)^2 ≈ rad(x)^2 / mid(x)^4 + 2 * rad(x)^4 / mid(x)^6
     @test sqrt(x) ⩪ exp(0.5 * log(x)) rtol=1e-3
     @test sqrt(x) ⩪ x^0.5
+
+    for μ in (2, 3, 10), σ in (0.25,)
+        @test testscalar(x -> x^2, μ, σ)
+        @test testscalar(x -> x^1.8, μ, σ)
+        @test testscalar(exp, μ, σ)
+        @test testscalar(log, μ, σ)
+        @test testscalar(sqrt, μ, σ)
+    end
 end
