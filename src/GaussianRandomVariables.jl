@@ -213,9 +213,8 @@ max(a::GVar, b::Real) = max(b, a)
 
 function Base.exp(a::GVar{<:AbstractFloat})
     isempty(a) && return a
-    return GVar(meanvar(exp, exp, exp, a.center, a.σ)...)
+    return GVar(exp(a.center + a.σ^2/2), exp(a.center + a.σ^2)*sqrt(1 - exp(-a.σ^2)))
 end
-Base.exp(a::GVar) = exp(float(a))
 
 function Base.log(a::GVar{<:AbstractFloat})
     isempty(a) && return a
