@@ -9,12 +9,14 @@ ThickNumbers = "b57aa878-5b76-4266-befc-f8e007760995"
 
 [compat]
 SpecialFunctions = "2"
+Statistics = "1"
 ThickNumbers = "1"
 julia = "1"
 
 [extras]
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["HypothesisTests", "Test"]
+test = ["HypothesisTests", "Statistics", "Test"]
