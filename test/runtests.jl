@@ -120,8 +120,6 @@ ispositive(x) = x > 0
         @test distrust(1 / (0 ± 1)) == Inf
     end
 
-    # ThickNumbers' generic `hull`/`intersect`/`typemin`/`typemax` build a result
-    # with `TN(lo, hi)`, but `GVar(center, σ)` is a different parametrization.
     @testset "set operations" begin
         a, b = GVar(3.0, 1.0), GVar(3.5, 1.0)   # spans [2,4] and [2.5,4.5]
         @test loval(hull(a, b)) ≈ 2.0 && hival(hull(a, b)) ≈ 4.5
@@ -129,9 +127,12 @@ ispositive(x) = x > 0
         @test isempty(intersect(GVar(0.0, 1.0), GVar(10.0, 1.0)))
         @test loval(typemax(GVar{Float64})) == Inf
         @test hival(typemin(GVar{Float64})) == -Inf
-        # Combining two values must never manufacture reliability neither had.
-        u = exp(1 ± 1.5)
+        # A result built from the span alone would report the diagnostics of a
+        # fresh box; combining values must not manufacture reliability.
+        u = 1 / ((3 ± 0.9)^2 - 8)     # moment_error > 0
+        @test moment_error(u) > 0
         @test moment_error(hull(u, GVar(1.0, 1.0))) >= moment_error(u)
+        @test moment_error(intersect(u, GVar(mid(u), 10rad(u)))) >= moment_error(u)
     end
 
     @testset "constructors" begin

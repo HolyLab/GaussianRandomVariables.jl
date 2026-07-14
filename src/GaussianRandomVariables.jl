@@ -137,14 +137,10 @@ ThickNumbers.basetype(::Type{GVar{T}}) where T = GVar
 ThickNumbers.basetype(::Type{GVar}) = GVar
 ThickNumbers.emptyset(::Type{G}) where G<:GVar = G(0, -1)
 
-# ThickNumbers' generic `hull`, `intersect`, `typemin` and `typemax` construct a
-# result with the two-argument call `TN(lo, hi)`, but `GVar`'s two-argument
-# constructor is `GVar(center, σ)`. Build these from the span directly.
-Base.typemin(::Type{GVar{T}}) where T<:Real = GVar{T}(typemin(T), zero(T))
-Base.typemax(::Type{GVar{T}}) where T<:Real = GVar{T}(typemax(T), zero(T))
-
 # A hull or intersection is a set operation, not a Gaussian: it has no meaningful
-# skew, and it must not gain reliability that neither operand had.
+# skew. ThickNumbers builds its generic result from the span alone, which would
+# reset the diagnostics to zero and so manufacture reliability that neither
+# operand had; carry the larger center error across instead.
 _span(::Type{G}, lo, hi, err) where G<:GVar = G((lo + hi)/2, (hi - lo)/2, zero(lo), err)
 
 function Base.intersect(a::GVar{T}, b::GVar{T}) where T
