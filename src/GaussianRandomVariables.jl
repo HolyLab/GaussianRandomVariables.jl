@@ -40,8 +40,8 @@ GVar{T}(x::GVar) where T = GVar{T}(x.center, x.σ)
 Base.promote_rule(::Type{GVar{T}}, ::Type{GVar{S}}) where {T<:Real,S<:Real} = GVar{promote_type(T,S)}
 Base.promote_rule(::Type{GVar{T}}, ::Type{S}) where {T<:Real,S<:BaseReals} = GVar{promote_type(T,S)}
 
-AbstractFloat(a::GVar{<:AbstractFloat}) = a
-AbstractFloat(a::GVar) = GVar(AbstractFloat(a.center), AbstractFloat(a.σ))
+Base.AbstractFloat(a::GVar{<:AbstractFloat}) = a
+Base.AbstractFloat(a::GVar) = GVar(AbstractFloat(a.center), AbstractFloat(a.σ))
 
 ## ThickNumbers API
 
