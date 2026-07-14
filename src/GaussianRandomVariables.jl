@@ -1,5 +1,6 @@
 module GaussianRandomVariables
 
+using SpecialFunctions: erf
 using ThickNumbers
 
 import Base: +, -, *, /, //, ^, inv
@@ -131,7 +132,18 @@ end
 
 ThickNumbers.loval(a::GVar) = a.center - a.σ
 ThickNumbers.hival(a::GVar) = a.center + a.σ
-ThickNumbers.lohi(::Type{G}, lo, hi) where G<:GVar = G((lo + hi)/2, nextfloat((hi - lo)/2))
+function ThickNumbers.lohi(::Type{G}, lo, hi) where G<:GVar
+    center = (lo + hi)/2
+    # Measure the radius from the *rounded* center, so a narrow span far from zero
+    # is still contained: there an ulp of σ is far smaller than an ulp of center,
+    # and no amount of widening `(hi - lo)/2` would recover it. Widen by an ulp
+    # only when rounding broke containment; a degenerate span keeps σ == 0.
+    σ = max(center - lo, hi - center)
+    if center - σ > lo || center + σ < hi
+        σ = nextfloat(σ)
+    end
+    return G(center, σ)
+end
 ThickNumbers.midrad(::Type{G}, center, σ) where G<:GVar = G(center, σ)
 ThickNumbers.basetype(::Type{GVar{T}}) where T = GVar
 ThickNumbers.basetype(::Type{GVar}) = GVar
@@ -329,14 +341,36 @@ end
 
 ## Functions
 
-function abs(a::GVar)
+# |x| of a Gaussian is a folded normal, whose first three moments are exact in
+# closed form. Writing α = c/σ, ϕ for the standard normal density and
+# e = erf(α/√2) = 2Φ(α) - 1 = E[sign(x)]:
+#
+#   E[|x|]  = σ(2ϕ + αe)
+#   E[|x|²] = c² + σ²                                (|x|² = x²)
+#   E[|x|³] = σ³((α³ + 3α)e + 2(α² + 2)ϕ)
+#
+# all even in c, as the fold requires. Beyond |α| = 8 the wrong-side mass is
+# below roundoff and the moments above lose their conditioning (E[|x|²] - E[|x|]²
+# cancels to one part in α²), so reflect instead.
+function abs(a::GVar{T}) where T<:AbstractFloat
     isempty(a) && return a
-    # Away from zero `abs` merely reflects. Straddling zero the result is a folded
-    # normal, which is not Gaussian at all; the center is then wrong by O(σ).
-    straddles = zero(a.center) ∈ a
-    err = straddles ? a.err + a.σ : a.err
-    return GVar(abs(a.center), a.σ, sign(a.center)*a.κ3, err)
+    c, σ, κ3, err = a.center, a.σ, a.κ3, a.err
+    α = c/σ
+    (iszero(σ) || abs(α) >= 8) && return GVar(abs(c), σ, sign(c)*κ3, err)
+    ϕ = exp(-α^2/2)/sqrt(2*T(π))
+    e = erf(α/sqrt(T(2)))
+    m1 = σ*(2ϕ + α*e)
+    m2 = c^2 + σ^2
+    m3 = σ^3*((α^3 + 3α)*e + 2*(α^2 + 2)*ϕ)
+    # An input skew survives the fold only to leading order: it displaces the mean
+    # by -κ3αϕ/(3σ²) and passes into the third cumulant weighted by E[sign(x)],
+    # both of which reduce to the reflected answer as |α| grows.
+    return assemble(m1 - κ3*α*ϕ/(3*σ^2),
+                    m2 - m1^2,
+                    m3 - 3*m1*m2 + 2*m1^3 + e*κ3,
+                    err)
 end
+abs(a::GVar{<:Real}) = abs(float(a))
 abs2(a::GVar) = a^2
 
 # `min` and `max` of Gaussians are not Gaussian. Keep the span, report no skew,
