@@ -1,5 +1,8 @@
 # GaussianRandomVariables
 
+[![CI](https://github.com/HolyLab/GaussianRandomVariables.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/HolyLab/GaussianRandomVariables.jl/actions/workflows/CI.yml)
+[![Coverage](https://codecov.io/gh/HolyLab/GaussianRandomVariables.jl/graph/badge.svg?token=jnrmAEQEtG)](https://codecov.io/gh/HolyLab/GaussianRandomVariables.jl)
+
 This implements a numeric type, `GVar`, representing a Gaussian (normal) random variable. Some elementary mathematical functions of these variables are implemented, and these also return `GVar`s giving the approximate distribution of the output.
 
 Demo:
