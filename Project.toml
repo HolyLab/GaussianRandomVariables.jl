@@ -11,7 +11,7 @@ ThickNumbers = "b57aa878-5b76-4266-befc-f8e007760995"
 SpecialFunctions = "2"
 Statistics = "1"
 ThickNumbers = "1"
-julia = "1"
+julia = "1.10"
 
 [extras]
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
