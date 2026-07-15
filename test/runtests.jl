@@ -135,7 +135,162 @@ ispositive(x) = x > 0
         @test moment_error(intersect(u, GVar(mid(u), 10rad(u)))) >= moment_error(u)
     end
 
+    # Cumulants of independent variables add.
+    @testset "sums and differences" begin
+        a, b = GVar(1.0, 0.5), GVar(-2.0, 1.2)
+        @test mid(a + b) ≈ -1.0
+        @test rad(a + b) ≈ sqrt(0.5^2 + 1.2^2)
+        @test mid(a - b) ≈ 3.0
+        @test rad(a - b) ≈ sqrt(0.5^2 + 1.2^2)
+        @test @inferred(a + b) isa GVar{Float64}
+
+        # Skew adds under `+` and subtracts under `-`; so does the center error.
+        s = (2 ± 0.5)^3          # κ3 > 0, err == 0 (a polynomial is exact)
+        t = exp(1 ± 0.3)         # κ3 > 0
+        @test (s + t).κ3 ≈ s.κ3 + t.κ3
+        @test (s - t).κ3 ≈ s.κ3 - t.κ3
+        u = sqrt(4 ± 0.5)        # err > 0
+        @test moment_error(u) > 0
+        @test moment_error(u + s) ≈ moment_error(u) + moment_error(s)
+
+        # Sampled independently, the sum of two Gaussians is Gaussian.
+        x = 1.0 .+ 0.5 .* randn(rng, 1000)
+        y = -2.0 .+ 1.2 .* randn(rng, 1000)
+        z = mid(a + b) .+ rad(a + b) .* randn(rng, 1000)
+        @test pvalue(EqualVarianceTTest(x .+ y, z)) > 1e-5
+        @test pvalue(LeveneTest(x .+ y, z)) > 1e-5
+
+        e = GVar(0.0, -1.0)
+        @test isempty(e + a) && isempty(a + e)
+        @test isempty(e - a) && isempty(a - e)
+    end
+
+    @testset "abs" begin
+        # Away from zero, `abs` merely reflects.
+        @test abs(GVar(-3.0, 0.1)) ⩪ GVar(3.0, 0.1)
+        @test abs((-2 ± 0.05)^3).κ3 ≈ -((-2 ± 0.05)^3).κ3   # reflection flips the skew
+
+        # Straddling zero the result is a folded normal, whose moments are exact.
+        # For a zero-mean input this is the half-normal: mean σ√(2/π), variance
+        # σ²(1 - 2/π), skewness √2(4 - π)/(π - 2)^(3/2).
+        h = abs(0 ± 1)
+        @test mid(h) ≈ sqrt(2/π)
+        @test rad(h) ≈ sqrt(1 - 2/π)
+        @test skewness(h) ≈ sqrt(2)*(4 - π)/(π - 2)^(3//2)
+        # The center is now right, so nothing is charged to `err`; only the shape
+        # is non-Gaussian, and `distrust` sees that through the skew alone.
+        @test moment_error(h) == 0
+        @test distrust(h) ≈ abs(skewness(h))/6
+
+        @test testscalar(abs, 0.0, 1.0; rtol=0.02, n=10^6)
+        @test testscalar(abs, 0.5, 1.0; rtol=0.02, n=10^6)
+        @test testskew(abs, -0.7, 1.0)
+
+        # Reflection and folding must agree where they meet.
+        @test abs(GVar(8.0, 1.0)) ⩪ abs(GVar(prevfloat(8.0), 1.0))
+        @test abs(GVar(0.0, 0.0)) ⩪ GVar(0.0, 0.0)      # σ == 0: no fold to compute
+        @test isempty(abs(GVar(0.0, -1.0)))
+        @test abs2(3 ± 0.5) ⩪ (3 ± 0.5)^2
+    end
+
+    @testset "min and max" begin
+        a, b = GVar(3.0, 1.0), GVar(3.5, 1.0)    # spans [2,4] and [2.5,4.5]
+        @test loval(min(a, b)) ≈ 2.0 && hival(min(a, b)) ≈ 4.0
+        @test loval(max(a, b)) ≈ 2.5 && hival(max(a, b)) ≈ 4.5
+        # A min/max is a set operation, not a Gaussian: no skew, and the larger
+        # center error survives.
+        u = 1 / ((3 ± 0.9)^2 - 8)
+        @test moment_error(u) > 0
+        @test min(u, a).κ3 == max(u, a).κ3 == 0
+        @test moment_error(min(u, a)) == moment_error(max(u, a)) == moment_error(u)
+
+        # Mixed with a plain number, in either argument order.
+        @test min(2.0, a) ⩪ min(a, 2.0)
+        @test max(2.0, a) ⩪ max(a, 2.0)
+        @test loval(max(2.0, a)) ≈ 2.0 && hival(max(2.0, a)) ≈ 4.0
+        # A degenerate span has zero radius: `min(a, 2.0)` is exactly 2.0, since
+        # every value in `a` is at least 2.
+        @test min(a, 2.0) ⩪ GVar(2.0, 0.0)
+        @test rad(min(a, 2.0)) == 0
+    end
+
+    # `lohi` must return a span that contains [lo, hi] even after rounding, without
+    # inflating one that is already exact.
+    @testset "lohi rounding" begin
+        @test rad(lohi(GVar, 1.0, 1.0)) == 0
+        @test lohi(GVar, 0.0, 1.0) ⩪ GVar(0.5, 0.5)
+        @test rad(lohi(GVar, 0.0, 1.0)) == 0.5
+        for (lo, hi) in ((0.0, 1.0), (-1.0, 1e300), (1e100, nextfloat(1e100)),
+                         (1e-300, 1.0), (-2.0, -1.0), (0.1, 0.1 + 1e-17))
+            g = lohi(GVar, lo, hi)
+            @test loval(g) <= lo && hival(g) >= hi
+        end
+    end
+
+    @testset "scalar arithmetic and promotion" begin
+        x = 3.0 ± 1.0
+        @test x + 2 ⩪ 2 + x
+        @test mid(x + 2) == 5.0 && rad(x + 2) == 1.0
+        @test x - 2 ⩪ GVar(1.0, 1.0)
+        @test 2 - x ⩪ GVar(-1.0, 1.0)
+        @test (2 - x).κ3 == -x.κ3
+        @test x * 2 ⩪ 2 * x
+        @test mid(x * 2) == 6.0 && rad(x * 2) == 2.0
+        @test x / 2 ⩪ 0.5 * x
+        @test (-2 * (2 ± 0.5)^3).κ3 ≈ -8 * ((2 ± 0.5)^3).κ3   # κ3 scales as the cube
+        @test x / (2 ± 0.5) ⩪ x * inv(2 ± 0.5)
+        @test x // (2 ± 0.5) ⩪ x / (2 ± 0.5)
+
+        # `GVar(1, 2)` already float-promotes, so an integer-backed `GVar` can only
+        # come from the parametric constructor. Arithmetic on one promotes rather
+        # than overflowing: the moment formulas divide, and κ3 grows as the cube.
+        i, j = GVar{Int}(1, 2), GVar{Int}(3, 4)
+        @test i isa GVar{Int}
+        @test @inferred(i + j) ⩪ GVar(4.0, sqrt(20.0))
+        @test @inferred(i - j) ⩪ GVar(-2.0, sqrt(20.0))
+        @test @inferred(i * j) isa GVar{Float64}
+        @test i + 2 ⩪ GVar(3.0, 2.0)
+        @test i - 2 ⩪ GVar(-1.0, 2.0)
+        @test 2 - i ⩪ GVar(1.0, 2.0)
+        @test 2 * i ⩪ i * 2 ⩪ GVar(2.0, 4.0)
+        @test i * 2 isa GVar{Float64}
+        @test inv(GVar{Int}(2, 1)) ⩪ inv(GVar(2.0, 1.0))
+        @test GVar{Int}(3, 1)^2 ⩪ GVar(3.0, 1.0)^2
+        @test abs(GVar{Int}(-3, 1)) ⩪ abs(GVar(-3.0, 1.0))
+        @test_throws "exponents above 20 overflow" GVar(1.0, 0.1)^21
+    end
+
+    @testset "display" begin
+        # A trustworthy value shows only its span; a distrusted one says so.
+        @test repr(GVar(1.0, 2.0)) == "1.0 ± 2.0"
+        @test repr(GVar(1.0, 2.0, 4.8, 0.0)) == "1.0 ± 2.0 (distrust 0.1)"   # |κ3|/6σ³
+        @test occursin("distrust", repr(exp(1 ± 1.5)))
+    end
+
+    @testset "traits" begin
+        @test zero(GVar(1.0, 2.0)) === zero(GVar{Float64}) === GVar(0.0, 0.0)
+        @test oneunit(GVar(1.0, 2.0)) === oneunit(GVar{Float64}) === GVar(1.0, 0.0)
+        @test real(GVar(1.0, 2.0)) === GVar(1.0, 2.0)
+        @test conj(GVar(1.0, 2.0)) === GVar(1.0, 2.0)
+        @test basetype(GVar{Float64}) === basetype(GVar) === GVar
+        @test promote_type(GVar{Float64}, GVar{Float32}) === GVar{Float64}
+        @test promote_type(GVar{Float64}, Int) === GVar{Float64}
+        @test AbstractFloat(GVar(1.0, 2.0)) === GVar(1.0, 2.0)
+        @test AbstractFloat(GVar{Int}(1, 2)) === GVar(1.0, 2.0)
+
+        # `hash` must see every field: two `GVar`s with the same span can still
+        # differ in their diagnostics.
+        @test hash(GVar(1.0, 2.0)) == hash(GVar(1.0, 2.0))
+        @test hash(GVar(1.0, 2.0, 3.0, 0.0)) != hash(GVar(1.0, 2.0, 0.0, 0.0))
+        @test hash(GVar(1.0, 2.0, 0.0, 3.0)) != hash(GVar(1.0, 2.0, 0.0, 0.0))
+    end
+
     @testset "constructors" begin
+        @test GVar(1, 2.0, 3, 4) === GVar(1.0, 2.0, 3.0, 4.0)
+        @test GVar(1, 2, 3, 4) === GVar(1.0, 2.0, 3.0, 4.0)
+        @test GVar(π, π, π, π) isa GVar{Float64}
+        @test GVar(3.0) === GVar(3.0, 0.0)
+        @test GVar(GVar(1.0, 2.0)) === GVar(1.0, 2.0)
         @test GVar{Float64}(1, 0) === GVar(1.0, 0.0)
         @test GVar(1, 2) === GVar(1.0, 2.0)
         @test GVar(π, π) isa GVar{Float64}
