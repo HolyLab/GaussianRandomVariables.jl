@@ -3,7 +3,11 @@ using ThickNumbers
 using Statistics
 using HypothesisTests
 using StableRNGs
+using Aqua
+using ForwardDiff
 using Test
+push!(LOAD_PATH, pkgdir(ThickNumbers, "ThickNumbersInterfaceTests"))
+using ThickNumbersInterfaceTests
 
 # These comparisons are Monte Carlo, so an unseeded generator turns the suite into a
 # coin flip. Julia's own streams are not reproducible across releases, so seed a
@@ -37,6 +41,19 @@ end
 ispositive(x) = x > 0
 
 @testset "GaussianRandomVariables.jl" begin
+    @testset "Aqua" begin
+        Aqua.test_all(GaussianRandomVariables)
+    end
+
+    @testset "ThickNumbers interface" begin
+        ThickNumbersInterfaceTests.test_reserved()
+        ThickNumbersInterfaceTests.test_required(GVar{Float64})
+        ThickNumbersInterfaceTests.test_required(GVar, [Float32, Float64])
+        ThickNumbersInterfaceTests.test_optional(GVar{Float64})
+        ThickNumbersInterfaceTests.test_optional(GVar, [Float32, Float64])
+        ThickNumbersInterfaceTests.test_FPTNviolations(GVar(1.0, 2.0))
+    end
+
     @testset "arithmetic" begin
         x = 3 ± 1
         e = GVar(0, -1)          # empty
@@ -74,6 +91,27 @@ ispositive(x) = x > 0
             @test testscalar(log, μ, σ; filter=ispositive)
             @test testscalar(sqrt, μ, σ; filter=ispositive)
         end
+    end
+
+    @testset "log and exp bases" begin
+        a = 3.0 ± 0.2
+        # `exp2`/`exp10`/`log2`/`log10` are rescalings of the natural-base
+        # functions, and the rescaling is exact, so the spans coincide.
+        @test exp2(a) ⩪ exp(a * log(2.0))
+        @test exp10(a) ⩪ exp(a * log(10.0))
+        @test log2(a) ⩪ log(a) / log(2.0)
+        @test log10(a) ⩪ log(a) / log(10.0)
+        # Zero-spread inputs reduce to the ordinary functions.
+        @test exp2(GVar(3.0, 0.0)) ⩪ GVar(8.0, 0.0)
+        @test exp10(GVar(2.0, 0.0)) ⩪ GVar(100.0, 0.0)
+        @test log2(GVar(8.0, 0.0)) ⩪ GVar(3.0, 0.0)
+        @test log10(GVar(100.0, 0.0)) ⩪ GVar(2.0, 0.0)
+        # Type is preserved for narrower floats.
+        @test exp2(GVar(1.0f0, 0.5f0)) isa GVar{Float32}
+        @test log2(GVar(3.0f0, 0.2f0)) isa GVar{Float32}
+        # Sampled moments confirm the propagation.
+        @test testscalar(exp2, 1.0, 0.2; rtol=0.03, n=10^6)
+        @test testscalar(log2, 3.0, 0.2; filter=ispositive)
     end
 
     # x^p is a polynomial, so the Gaussian moments terminate: mean, variance and
@@ -343,5 +381,25 @@ ispositive(x) = x > 0
         @test GVar{Float32}(GVar(1.0, 2.0)) isa GVar{Float32}
         @test valuetype(GVar(1.0, 2.0)) === Float64
         @test convert(GVar{Float64}, 3) ⩪ GVar(3.0, 0.0)
+    end
+
+    # Restricting the scalar-times-`GVar` methods to `BaseReals` keeps a
+    # `ForwardDiff.Dual` from matching them, so differentiation carries `GVar`
+    # values through in the `Dual` slots. Each analytic derivative is written as
+    # the same sequence of `GVar` operations ForwardDiff performs, so the spans
+    # match exactly (note `w * w`, not `w^2`: ForwardDiff differentiates one order
+    # at a time, and `GVar` treats repeated factors as independent).
+    @testset "ForwardDiff" begin
+        x, w = 2.0, 0.0 ± 0.5
+        ϕ(t) = sin(x + (1 + t) * w)
+        ϕ′(t) = cos(x + (1 + t) * w) * w
+        ϕ′′(t) = -sin(x + (1 + t) * w) * w * w
+        ϕ′′′(t) = -cos(x + (1 + t) * w) * w * w * w
+        dϕ(t) = ForwardDiff.derivative(ϕ, t)
+        ddϕ(t) = ForwardDiff.derivative(dϕ, t)
+        dddϕ(t) = ForwardDiff.derivative(ddϕ, t)
+        @test ϕ′(0) ≐ dϕ(0)
+        @test ϕ′′(0) ≐ ddϕ(0)
+        @test ϕ′′′(0) ≐ dddϕ(0)
     end
 end
