@@ -193,6 +193,52 @@ ispositive(x) = x > 0
         @test abs2(3 ± 0.5) ⩪ (3 ± 0.5)^2
     end
 
+    # sin and cos of a Gaussian are not Gaussian, but their first three moments are
+    # exact, so mid, rad and κ3 match closed forms and nothing is charged to `err`.
+    @testset "sin and cos" begin
+        c, σ = 0.7, 0.5
+        d1, d2 = exp(-σ^2/2), exp(-2σ^2)
+        s = sin(GVar(c, σ))
+        @test mid(s) ≈ sin(c)*d1
+        @test rad(s)^2 ≈ (1 - cos(2c)*d2)/2 - (sin(c)*d1)^2
+        @test moment_error(s) == 0
+        k = cos(GVar(c, σ))
+        @test mid(k) ≈ cos(c)*d1
+        @test rad(k)^2 ≈ (1 + cos(2c)*d2)/2 - (cos(c)*d1)^2
+        @test moment_error(k) == 0
+
+        # A zero-mean input is symmetric: sin has zero mean and no skew, while cos
+        # peaks at 1 and folds its mass downward, so it is skewed toward low values.
+        @test mid(sin(0 ± σ)) == 0
+        @test sin(0 ± σ).κ3 == 0
+        @test mid(cos(0 ± σ)) ≈ exp(-σ^2/2)
+        @test skewness(cos(0 ± σ)) < 0
+
+        # A vanishing spread is an ordinary number.
+        @test sin(GVar(c, 0.0)) ⩪ GVar(sin(c), 0.0)
+        @test cos(GVar(c, 0.0)) ⩪ GVar(cos(c), 0.0)
+
+        # `sincos` returns the pair; the empty set propagates through all three.
+        sc = sincos(GVar(c, σ))
+        @test sc[1] ⩪ sin(GVar(c, σ)) && sc[2] ⩪ cos(GVar(c, σ))
+        e = GVar(0.0, -1.0)
+        @test isempty(sin(e)) && isempty(cos(e))
+        @test all(isempty, sincos(e))
+
+        @test @inferred(sin(GVar(1.0, 0.5))) isa GVar{Float64}
+        @test @inferred(sincos(GVar(1.0, 0.5))) isa Tuple{GVar{Float64},GVar{Float64}}
+
+        # Sampled moments confirm the closed forms across a range of spreads.
+        for (μ, σ) in ((0.6, 0.2), (1.0, 0.5), (2.0, 0.8), (0.9, 1.0))
+            @test testscalar(sin, μ, σ; rtol=0.02, n=10^6)
+            @test testscalar(cos, μ, σ; rtol=0.02, n=10^6)
+        end
+        for (μ, σ) in ((1.0, 0.5), (2.0, 0.8), (0.9, 1.0))
+            @test testskew(sin, μ, σ)
+            @test testskew(cos, μ, σ)
+        end
+    end
+
     @testset "min and max" begin
         a, b = GVar(3.0, 1.0), GVar(3.5, 1.0)    # spans [2,4] and [2.5,4.5]
         @test loval(min(a, b)) ≈ 2.0 && hival(min(a, b)) ≈ 4.0
