@@ -5,7 +5,7 @@ using ThickNumbers
 
 import Base: +, -, *, /, //, ^, inv
 import Base: abs, abs2, max, min, sqrt
-import Base: log, exp, sin, cos, sincos
+import Base: log, log2, log10, exp, exp2, exp10, sin, cos, sincos
 
 export GVar, ±
 export skewness, moment_error, distrust
@@ -132,6 +132,13 @@ end
 
 ThickNumbers.loval(a::GVar) = a.center - a.σ
 ThickNumbers.hival(a::GVar) = a.center + a.σ
+# `center` and `σ` are the stored primitives, so report the midpoint, width and
+# radius from them directly. Deriving them from `loval`/`hival` round-trips
+# through `center ± σ` and loses an ulp, which can make `rad` fall below the `σ`
+# handed to `midrad` and so violate the `midrad` containment contract.
+ThickNumbers.mid(a::GVar) = a.center
+ThickNumbers.wid(a::GVar) = 2 * a.σ
+ThickNumbers.rad(a::GVar) = a.σ
 function ThickNumbers.lohi(::Type{G}, lo, hi) where G<:GVar
     center = (lo + hi)/2
     # Measure the radius from the *rounded* center, so a narrow span far from zero
@@ -329,6 +336,9 @@ function ^(a::GVar{T}, p::Integer) where T<:AbstractFloat
 end
 ^(a::GVar{<:Real}, p::Integer) = float(a)^p
 
+# Resolves the ambiguity between `^(::GVar, ::Real)` and Base's `^(::Number, ::Rational)`.
+^(a::GVar, p::Rational) = a^float(p)
+
 function ^(a::GVar, p::Real)
     isinteger(p) && return a^Int(p)
     isempty(a) && return a
@@ -405,6 +415,14 @@ end
 
 log(a::GVar{<:AbstractFloat}) =
     isempty(a) ? a : gmap(log, x -> 1/x, x -> -1/x^2, x -> 2/x^3, x -> -6/x^4, a)
+
+# Reduce the other bases to the natural one by rescaling, which is exact: the
+# argument scaling of `exp2`/`exp10` and the result scaling of `log2`/`log10`
+# both go through the constant-factor rules without adding truncation error.
+exp2(a::GVar{T}) where T<:AbstractFloat = exp(a * log(T(2)))
+exp10(a::GVar{T}) where T<:AbstractFloat = exp(a * log(T(10)))
+log2(a::GVar{T}) where T<:AbstractFloat = log(a) / log(T(2))
+log10(a::GVar{T}) where T<:AbstractFloat = log(a) / log(T(10))
 
 sqrt(a::GVar{<:AbstractFloat}) =
     isempty(a) ? a : gmap(sqrt, x -> 1/(2*sqrt(x)), x -> -1/(4*sqrt(x^3)),
