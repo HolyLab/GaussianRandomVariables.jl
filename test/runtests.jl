@@ -76,6 +76,10 @@ ispositive(x) = x > 0
         @test x^0 ⩪ oneunit(x)
         @test x^1 ⩪ x
         @test 1/(1/x) ⩪ x rtol=0.1
+        @test x^(1//2) ⩪ x^0.5      # a Rational exponent reduces to the real one
+        @test x^(4//2) ⩪ x^2        # an integer-valued Rational takes the exact path
+        # `mid`, `wid` and `rad` report the stored primitives exactly.
+        @test mid(x) == 3.0 && wid(x) == 2.0 && rad(x) == 1.0
     end
 
     @testset "distributions" begin
