@@ -5,7 +5,7 @@ using ThickNumbers
 
 import Base: +, -, *, /, //, ^, inv
 import Base: abs, abs2, max, min, sqrt
-import Base: log, exp
+import Base: log, exp, sin, cos, sincos
 
 export GVar, ±
 export skewness, moment_error, distrust
@@ -409,5 +409,41 @@ log(a::GVar{<:AbstractFloat}) =
 sqrt(a::GVar{<:AbstractFloat}) =
     isempty(a) ? a : gmap(sqrt, x -> 1/(2*sqrt(x)), x -> -1/(4*sqrt(x^3)),
                           x -> 3/(8*sqrt(x^5)), x -> -15/(16*sqrt(x^7)), a)
+
+# sin and cos of a Gaussian are not Gaussian, but their first three moments are
+# exact in closed form from the characteristic function E[exp(itx)] = exp(itc - t²σ²/2).
+# With s = sin c, k = cos c and the Gaussian damping factors d1 = exp(-σ²/2),
+# d2 = exp(-2σ²), d9 = exp(-9σ²/2):
+#
+#   E[sin x] = s·d1                       E[cos x] = k·d1
+#   E[sin²x] = (1 - cos2c·d2)/2           E[cos²x] = (1 + cos2c·d2)/2
+#   E[sin³x] = (3s·d1 - sin3c·d9)/4       E[cos³x] = (3k·d1 + cos3c·d9)/4
+#
+# The mean is exact in σ, so nothing is charged to `err`; as for `exp`, only the
+# input's own skew and center error propagate, to leading order through the local
+# derivatives (f' = k, f'' = -s, f''' = -k for sin; negated/rotated for cos).
+function sin(a::GVar{<:AbstractFloat})
+    isempty(a) && return a
+    c, σ, κ3, err = a.center, a.σ, a.κ3, a.err
+    d1, d2, d9 = exp(-σ^2/2), exp(-2σ^2), exp(-9σ^2/2)
+    s, k = sin(c), cos(c)
+    μ = s*d1
+    v = (1 - cos(2c)*d2)/2 - μ^2
+    e3 = (3s*d1 - sin(3c)*d9)/4
+    return assemble(μ - k*κ3/6, v - s*k*κ3, (e3 - 3μ*(v + μ^2) + 2μ^3) + k^3*κ3, abs(k*d1)*err)
+end
+
+function cos(a::GVar{<:AbstractFloat})
+    isempty(a) && return a
+    c, σ, κ3, err = a.center, a.σ, a.κ3, a.err
+    d1, d2, d9 = exp(-σ^2/2), exp(-2σ^2), exp(-9σ^2/2)
+    s, k = sin(c), cos(c)
+    μ = k*d1
+    v = (1 + cos(2c)*d2)/2 - μ^2
+    e3 = (3k*d1 + cos(3c)*d9)/4
+    return assemble(μ + s*κ3/6, v + s*k*κ3, (e3 - 3μ*(v + μ^2) + 2μ^3) - s^3*κ3, abs(s*d1)*err)
+end
+
+sincos(a::GVar) = (sin(a), cos(a))
 
 end # module
